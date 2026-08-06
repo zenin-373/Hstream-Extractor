@@ -29,3 +29,10 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Cookies / secrets – never commit these
+cookies.txt
+*.cookies
+*cookie*
+.env
+.env.*
