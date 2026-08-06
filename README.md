@@ -1,51 +1,54 @@
 # HStream Extractor
 
-A clean, standalone bulk downloader and remuxer for [hstream.moe](https://hstream.moe) (and any other site supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp)).
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zenin-373/Hstream-Extractor/blob/main/HStream_Extractor_Colab.ipynb)
 
-Originally based on a Google Colab notebook. This version is a proper command-line tool with **no hardcoded credentials or session cookies**.
+Bulk downloader + subtitle remuxer for [hstream.moe](https://hstream.moe).
+
+Uses **yt-dlp** + **[hanime-plugin](https://pypi.org/project/hanime-plugin/)** (required for hstream.moe) + optional external `.ass` mux into MKV.
+
+**No hardcoded credentials.**
 
 ## Features
 
-- Fast downloads via **yt-dlp** + **aria2c**
-- **Cookie support** for age-restricted / logged-in-only content
-- Optional external English `.ass` subtitle download + automatic remux into **MKV**
-- Progress bars (overall + per-subtitle)
-- Simple CLI – works on Linux, macOS, Windows (WSL / Git Bash recommended)
-- Ready-to-use **Google Colab notebook** included
-- No API keys or hardcoded credentials
+- yt-dlp + aria2c (ffmpeg fallback)
+- **hanime-plugin** extractor for hstream.moe
+- Cookie support (file, browser, or Colab form tokens)
+- Optional English `.ass` download + MKV remux
+- Progress bars
+- CLI + Google Colab notebook
 
-## Important: Cookies for blocked links
+## Important: hstream.moe needs hanime-plugin
 
-Many titles on hstream.moe are **blocked for anonymous visitors**. You need a valid logged-in session.
-
-### Recommended methods (safe)
-
-#### 1. Export cookies to a file (best for automation / Colab)
-
-1. Log in to [hstream.moe](https://hstream.moe) in your normal browser.
-2. Use a browser extension such as:
-   - [Get cookies.txt LOCALLY](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) (Chrome/Edge)
-   - [cookies.txt](https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/) (Firefox)
-3. Export cookies for `hstream.moe` in **Netscape** format → save as `cookies.txt`.
-4. Run the tool with:
+Stock yt-dlp does **not** support hstream.moe. Install:
 
 ```bash
+pip install -U yt-dlp hanime-plugin
+```
+
+Some plugin features also need [Deno](https://deno.land).
+
+## Cookies (blocked / login-only titles)
+
+### Local CLI
+
+```bash
+# Netscape cookies.txt
 python hstream_extractor.py --cookies cookies.txt "https://hstream.moe/hentai/..."
-```
 
-#### 2. Let yt-dlp read cookies directly from your browser (local only)
-
-```bash
+# Or from browser
 python hstream_extractor.py --cookies-from-browser chrome "https://hstream.moe/hentai/..."
-# or
-python hstream_extractor.py --cookies-from-browser firefox "https://hstream.moe/hentai/..."
 ```
 
-Supported browsers: `chrome`, `firefox`, `edge`, `brave`, `opera`, `chromium`, `safari` (macOS), etc.
+### Google Colab
 
-> **Security note**  
-> Never commit real cookies to a public repository. Cookies expire and give access to your account.  
-> Keep `cookies.txt` in `.gitignore` (already configured).
+In the Settings form, paste:
+
+- `XSRF_TOKEN` — cookie value from DevTools
+- `HSTREAM_SESSION` — cookie value from DevTools
+
+How to copy: log in → DevTools → Application → Cookies → `hstream.moe` → copy values only (not the names).
+
+> Never commit real cookies. They expire and grant account access.
 
 ---
 
@@ -53,110 +56,79 @@ Supported browsers: `chrome`, `firefox`, `edge`, `brave`, `opera`, `chromium`, `
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zenin-373/Hstream-Extractor/blob/main/HStream_Extractor_Colab.ipynb)
 
-Click the badge above to open the notebook directly in Google Colab.
-
-Notebook file: **[HStream_Extractor_Colab.ipynb](HStream_Extractor_Colab.ipynb)**
-
-### Quick steps
-
-1. Click **Open in Colab** (or open the notebook manually).
-2. Run the **Install dependencies** cell.
-3. Paste your URLs in the Settings cell.
-4. (Optional but recommended) Upload a `cookies.txt` file via the left sidebar and set `COOKIES_FILE = "cookies.txt"`.
-5. Run the extractor cell.
-6. Download the results (or zip them) from the Files sidebar.
-
-> Colab tip: Free accounts have limited runtime and disk. Prefer shorter batches and download files promptly.
+1. Open the notebook (badge above).
+2. Run **Install dependencies** (installs yt-dlp, hanime-plugin, aria2, ffmpeg, deno).
+3. Fill **Settings**:
+   - `URL_LIST` — space-separated URLs
+   - `DESTINATION_FOLDER`
+   - `XSRF_TOKEN` / `HSTREAM_SESSION`
+   - `SERIES_SLUG` — optional, if auto subtitle path fails (use dots)
+4. Run the extractor cell.
+5. Zip/download from the Files sidebar.
 
 ---
 
-## Requirements (local)
+## Local CLI
+
+### Requirements
 
 - Python 3.9+
-- `yt-dlp`, `requests`, `tqdm` (installed automatically on first run)
-- System tools: `aria2c` and `ffmpeg` (recommended)
+- `aria2c`, `ffmpeg` recommended
+- Deno recommended (for hanime-plugin)
 
-### Install system tools
-
-**Debian / Ubuntu / WSL**
 ```bash
-sudo apt update
-sudo apt install -y aria2 ffmpeg
-```
+# Debian/Ubuntu/WSL
+sudo apt update && sudo apt install -y aria2 ffmpeg
 
-**macOS (Homebrew)**
-```bash
+# macOS
 brew install aria2 ffmpeg
 ```
 
-**Windows**  
-Install via [Scoop](https://scoop.sh/) or [Chocolatey](https://chocolatey.org/), or place the binaries in your PATH.
-
-## Installation (local)
+### Install
 
 ```bash
 git clone https://github.com/zenin-373/Hstream-Extractor.git
 cd Hstream-Extractor
-python -m pip install -r requirements.txt   # optional – the script can also install them
+pip install -r requirements.txt
 ```
 
-Or just download `hstream_extractor.py` and run it.
-
-## Usage (CLI)
+### Usage
 
 ```bash
-# Basic (works only for public links)
-python hstream_extractor.py "https://hstream.moe/hentai/..."
+python hstream_extractor.py --cookies cookies.txt \
+  "https://hstream.moe/hentai/sweet-home-h-na-oneesan-wa-suki-desu-ka-1"
 
-# With cookies file (recommended for most titles)
-python hstream_extractor.py --cookies cookies.txt \\
-  "https://hstream.moe/hentai/sweet-home-h-na-oneesan-wa-suki-desu-ka-1" \\
-  "https://hstream.moe/hentai/sweet-home-h-na-oneesan-wa-suki-desu-ka-2"
-
-# Pull cookies live from browser
-python hstream_extractor.py --cookies-from-browser chrome \\
-  "https://hstream.moe/hentai/..."
-
-# Specify output folder + series slug for external subtitles
-python hstream_extractor.py -o ~/Videos \\
-  --series-slug "Sweet.Home.H.na.Oneesan.wa.Suki.desu.ka" \\
-  --year 2024 \\
-  --cookies cookies.txt \\
+python hstream_extractor.py -o ~/Videos \
+  --series-slug "Sweet.Home.H.na.Oneesan.wa.Suki.desu.ka" \
+  --cookies cookies.txt \
   "https://hstream.moe/hentai/sweet-home-h-na-oneesan-wa-suki-desu-ka-1"
 ```
 
-### Arguments
-
 | Flag | Description |
 |------|-------------|
-| `urls` | One or more video URLs (positional) |
-| `-o`, `--output` | Destination directory (default: current dir) |
-| `--cookies` | Path to Netscape-format `cookies.txt` |
-| `--cookies-from-browser` | Browser name to load cookies from (`chrome`, `firefox`, …) |
-| `--series-slug` | Series name used by the external subtitle host (dots instead of hyphens) |
-| `--year` | Year folder on the subtitle host (default: `2024`) |
-| `--skip-deps` | Skip pip / system dependency checks |
+| `urls` | Video URLs |
+| `-o`, `--output` | Output directory |
+| `--cookies` | Netscape `cookies.txt` |
+| `--cookies-from-browser` | e.g. `chrome`, `firefox` |
+| `--series-slug` | Subtitle host folder (dots) |
+| `--year` | Subtitle year folder (default `2024`) |
+| `--skip-deps` | Skip dependency install |
 
-## How subtitle muxing works
+## Subtitles
 
-1. Video is downloaded with yt-dlp + aria2c (using cookies if provided).
-2. Episode number is extracted from the URL (last numeric segment).
-3. An external `.ass` subtitle is attempted from:
-   ```
-   https://oppai-str.shoujo-h.org/{year}/{Series.Slug}/E{ep:02}/eng.ass
-   ```
-4. If the subtitle is found, video + sub are remuxed into a single `.mkv` (stream copy, no re-encode).
-5. Temporary files are cleaned up.
+After download, the tool tries:
 
-If the subtitle is missing or the slug is wrong, the original video file is kept.
+```text
+https://oppai-str.shoujo-h.org/2024/{Series.Slug}/E{ep:02}/eng.ass
+```
 
-> **Note:** The external subtitle host and path format are community-sourced and may change. Always supply the correct `--series-slug` for best results.
+If found → remux to `.mkv` with ffmpeg (`-c copy`).  
+If not → keeps the original video. Set `--series-slug` / `SERIES_SLUG` when auto-guess fails.
 
 ## License
 
-MIT – do whatever you want, just don’t blame the author.
+MIT
 
 ## Disclaimer
 
-This tool is for personal, educational, and archival use only.  
-Respect the terms of service of the sites you download from and the copyright of the content creators.
+Personal / educational / archival use only. Respect site ToS and copyright.

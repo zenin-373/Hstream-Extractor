@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 """
 HStream Extractor
-Bulk downloader + optional subtitle muxer for hstream.moe (and similar yt-dlp supported sites).
+Bulk downloader + optional subtitle muxer for hstream.moe.
 
-Features:
-- Downloads videos with yt-dlp + aria2c
-- Cookie support for age-restricted / logged-in-only content
-- Optional external .ass subtitle download + remux into MKV
-- Progress bars via tqdm
-- Clean CLI interface (no Colab markup, no hardcoded credentials)
+Requires hanime-plugin for hstream.moe support.
 """
 
 import argparse
@@ -22,22 +17,24 @@ from tqdm import tqdm
 
 
 def ensure_dependencies():
-    """Install/upgrade required packages and system tools if missing."""
-    print("📦 Checking / installing dependencies...")
+    print("Checking / installing dependencies...")
     try:
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp", "requests", "tqdm"],
+            [
+                sys.executable, "-m", "pip", "install", "--upgrade",
+                "yt-dlp", "requests", "tqdm", "hanime-plugin",
+            ],
             check=True,
             capture_output=True,
         )
     except subprocess.CalledProcessError as e:
-        print(f"⚠️  pip install failed: {e}")
+        print(f"pip install failed: {e}")
         sys.exit(1)
 
     for pkg in ("aria2c", "ffmpeg"):
         if subprocess.run(["which", pkg], capture_output=True).returncode != 0:
-            print(f"⚠️  '{pkg}' not found in PATH. Install it manually for best results.")
-    print("✅ Dependency check done.\n")
+            print(f"WARNING: '{pkg}' not found in PATH.")
+    print("Dependency check done.\n")
 
 
 def download_video(
@@ -46,7 +43,6 @@ def download_video(
     cookies_file: Path | None = None,
     cookies_from_browser: str | None = None,
 ) -> Path:
-    """Download a single video using yt-dlp + aria2c. Returns path to downloaded file."""
     output_template = str(dest / "%(title)s.%(ext)s")
     cmd = [
         "yt-dlp",
@@ -56,32 +52,39 @@ def download_video(
         "-o", output_template,
         "--no-mtime",
     ]
-
-    # Cookie handling (required for many hstream.moe links)
     if cookies_file:
         cmd.extend(["--cookies", str(cookies_file)])
     elif cookies_from_browser:
         cmd.extend(["--cookies-from-browser", cookies_from_browser])
-
     cmd.append(url)
 
-    print(f"⬇️  Downloading video: {url}")
-    subprocess.run(cmd, check=True)
+    print(f"Downloading video: {url}")
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError:
+        print("Retrying with --downloader ffmpeg ...")
+        cmd2 = [
+            "yt-dlp", "--downloader", "ffmpeg",
+            "-o", output_template, "--no-mtime",
+        ]
+        if cookies_file:
+            cmd2.extend(["--cookies", str(cookies_file)])
+        elif cookies_from_browser:
+            cmd2.extend(["--cookies-from-browser", cookies_from_browser])
+        cmd2.append(url)
+        subprocess.run(cmd2, check=True)
 
-    files = list(dest.glob("*"))
+    files = [p for p in dest.glob("*") if p.suffix.lower() != ".ass"]
     if not files:
         raise FileNotFoundError("No file was downloaded.")
-    latest = max(files, key=lambda p: p.stat().st_ctime)
-    return latest
+    return max(files, key=lambda p: p.stat().st_ctime)
 
 
 def download_subtitle(sub_url: str, sub_path: Path) -> bool:
-    """Download a subtitle file with a progress bar. Returns True on success."""
-    print(f"⬇️  Downloading subtitle: {sub_url}")
+    print(f"Trying subtitle: {sub_url}")
     try:
         with requests.get(sub_url, stream=True, timeout=30) as r:
             if r.status_code != 200:
-                print(f"⚠️  Subtitle not found (HTTP {r.status_code})")
                 return False
             total = int(r.headers.get("content-length", 0))
             with open(sub_path, "wb") as f, tqdm(
@@ -97,25 +100,24 @@ def download_subtitle(sub_url: str, sub_path: Path) -> bool:
                         f.write(chunk)
                         bar.update(len(chunk))
         return True
-    except Exception as e:
-        print(f"⚠️  Subtitle download failed: {e}")
+    except Exception:
         return False
 
 
 def remux_to_mkv(video_path: Path, sub_path: Path, output_mkv: Path) -> None:
-    """Mux video + ASS subtitle into an MKV container (stream copy)."""
-    print("🔗 Remuxing into MKV...")
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", str(video_path),
-        "-i", str(sub_path),
-        "-map", "0",
-        "-map", "1",
-        "-c", "copy",
-        "-metadata:s:s:0", "language=eng",
-        str(output_mkv),
-    ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    print("Remuxing into MKV...")
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-i", str(video_path),
+            "-i", str(sub_path),
+            "-map", "0", "-map", "1", "-c", "copy",
+            "-metadata:s:s:0", "language=eng",
+            str(output_mkv),
+        ],
+        check=True,
+        capture_output=True,
+    )
 
 
 def process_url(
@@ -126,7 +128,6 @@ def process_url(
     cookies_file: Path | None = None,
     cookies_from_browser: str | None = None,
 ) -> None:
-    """Full pipeline for one URL."""
     video_path = download_video(
         url, dest,
         cookies_file=cookies_file,
@@ -135,96 +136,66 @@ def process_url(
     base_name = video_path.stem
     final_mkv = dest / f"{base_name}.mkv"
 
-    # Skip if already an mkv from a previous run
-    if video_path.suffix.lower() == ".mkv" and video_path == final_mkv:
-        print(f"✅ Already exists as MKV: {video_path}")
+    if video_path.suffix.lower() == ".mkv":
+        print(f"Already MKV: {video_path}")
         return
 
-    # Attempt to derive episode number from URL (last segment after last '-')
     ep_match = re.search(r"-(\d+)/?$", url.rstrip("/"))
     if not ep_match:
-        print("⚠️  Could not extract episode number from URL – skipping subtitle.")
-        print(f"✅ Kept original: {video_path}")
+        print("Could not extract episode number – keeping original.")
         return
 
     ep_num = int(ep_match.group(1))
+    slug_part = re.sub(r"-\d+$", "", url.rstrip("/").split("/")[-1])
 
-    if not series_slug:
-        # Fallback guess: /hentai/gibo-no-toiki-1 → gibo-no-toiki
-        slug_part = url.rstrip("/").split("/")[-1]
-        series_slug = re.sub(r"-\d+$", "", slug_part)
+    candidates = []
+    if series_slug:
+        candidates.append(series_slug)
+    candidates += [
+        slug_part.replace("-", "."),
+        slug_part,
+        ".".join(w.capitalize() for w in slug_part.split("-")),
+    ]
+    seen = set()
+    candidates = [c for c in candidates if not (c in seen or seen.add(c))]
 
-    # External subtitle host format (community-sourced, may change)
-    # https://oppai-str.shoujo-h.org/{year}/{Series.Name}/E{ep:02}/eng.ass
-    sub_url = f"https://oppai-str.shoujo-h.org/{year}/{series_slug}/E{ep_num:02d}/eng.ass"
     sub_path = dest / f"{base_name}.ass"
+    sub_ok = False
+    for slug in candidates:
+        sub_url = f"https://oppai-str.shoujo-h.org/{year}/{slug}/E{ep_num:02d}/eng.ass"
+        if download_subtitle(sub_url, sub_path):
+            sub_ok = True
+            break
 
-    if download_subtitle(sub_url, sub_path):
+    if sub_ok:
         remux_to_mkv(video_path, sub_path, final_mkv)
         sub_path.unlink(missing_ok=True)
         if video_path != final_mkv and video_path.exists():
             video_path.unlink()
-        print(f"✅ Finished: {final_mkv}")
+        print(f"Finished: {final_mkv}")
     else:
-        print(f"⚠️  Subtitle unavailable – keeping original video: {video_path}")
+        print(f"Subtitle not found – kept original: {video_path}")
+        print("Tip: pass --series-slug with the subtitle host folder name (dots)")
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="HStream Extractor – bulk download & optional subtitle mux for hstream.moe",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Basic download
-  python hstream_extractor.py "https://hstream.moe/hentai/..."
-
-  # With cookies from a Netscape cookies.txt file (recommended)
-  python hstream_extractor.py --cookies cookies.txt "https://hstream.moe/hentai/..."
-
-  # Automatically pull cookies from your browser
-  python hstream_extractor.py --cookies-from-browser chrome "https://hstream.moe/hentai/..."
-  python hstream_extractor.py --cookies-from-browser firefox "https://hstream.moe/hentai/..."
-
-  # Full example with series slug for subtitles
-  python hstream_extractor.py -o ~/Videos --series-slug "Sweet.Home.H.na.Oneesan.wa.Suki.desu.ka" \\
-      --cookies cookies.txt "https://hstream.moe/hentai/sweet-home-h-na-oneesan-wa-suki-desu-ka-1"
-""",
     )
-    parser.add_argument(
-        "urls",
-        nargs="+",
-        help="One or more hstream.moe (or yt-dlp supported) URLs",
-    )
-    parser.add_argument(
-        "-o", "--output",
-        default=".",
-        help="Destination folder (default: current directory)",
-    )
-    parser.add_argument(
-        "--cookies",
-        type=Path,
-        help="Path to a Netscape-format cookies.txt file (for blocked / age-gated content)",
-    )
+    parser.add_argument("urls", nargs="+", help="One or more hstream.moe URLs")
+    parser.add_argument("-o", "--output", default=".", help="Destination folder")
+    parser.add_argument("--cookies", type=Path, help="Netscape cookies.txt")
     parser.add_argument(
         "--cookies-from-browser",
         metavar="BROWSER",
-        help="Load cookies directly from a browser (chrome, firefox, edge, brave, opera, ...)",
+        help="chrome, firefox, edge, ...",
     )
     parser.add_argument(
         "--series-slug",
-        help="Series slug for external subtitles, e.g. 'Gibo.no.Toiki' "
-             "(use dots instead of spaces/hyphens). If omitted, a simple guess is made.",
+        help="Subtitle host series folder (dots), e.g. Sweet.Home.H.na.Oneesan.wa.Suki.desu.ka",
     )
-    parser.add_argument(
-        "--year",
-        default="2024",
-        help="Year folder used by the external subtitle host (default: 2024)",
-    )
-    parser.add_argument(
-        "--skip-deps",
-        action="store_true",
-        help="Skip dependency installation check",
-    )
+    parser.add_argument("--year", default="2024", help="Subtitle host year folder")
+    parser.add_argument("--skip-deps", action="store_true", help="Skip dependency install")
     args = parser.parse_args()
 
     if args.cookies and args.cookies_from_browser:
@@ -237,14 +208,14 @@ Examples:
     dest.mkdir(parents=True, exist_ok=True)
 
     urls = [u.strip() for u in args.urls if u.strip()]
-    print(f"📋 {len(urls)} URL(s) to process → {dest}\n")
+    print(f"{len(urls)} URL(s) → {dest}\n")
 
     if not args.cookies and not args.cookies_from_browser:
-        print("ℹ️  No cookies provided. Some hstream.moe links are blocked without a logged-in session.")
-        print("   Use --cookies cookies.txt  or  --cookies-from-browser chrome\n")
+        print("No cookies provided. Some links need a logged-in session.")
+        print("Use --cookies cookies.txt or --cookies-from-browser chrome\n")
 
     for i, url in enumerate(tqdm(urls, desc="Overall", unit="video"), start=1):
-        tqdm.write(f"\n🔄 [{i}/{len(urls)}] {url}")
+        tqdm.write(f"\n[{i}/{len(urls)}] {url}")
         try:
             process_url(
                 url,
@@ -255,9 +226,9 @@ Examples:
                 cookies_from_browser=args.cookies_from_browser,
             )
         except Exception as e:
-            tqdm.write(f"❌ Failed: {e}")
+            tqdm.write(f"Failed: {e}")
 
-    print("\n🎉 All tasks completed!")
+    print("\nAll tasks completed!")
 
 
 if __name__ == "__main__":
