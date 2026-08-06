@@ -11,6 +11,7 @@ Originally based on a Google Colab notebook. This version is a proper command-li
 - Optional external English `.ass` subtitle download + automatic remux into **MKV**
 - Progress bars (overall + per-subtitle)
 - Simple CLI – works on Linux, macOS, Windows (WSL / Git Bash recommended)
+- Ready-to-use **Google Colab notebook** included
 - No API keys or hardcoded credentials
 
 ## Important: Cookies for blocked links
@@ -19,7 +20,7 @@ Many titles on hstream.moe are **blocked for anonymous visitors**. You need a va
 
 ### Recommended methods (safe)
 
-#### 1. Export cookies to a file (best for automation)
+#### 1. Export cookies to a file (best for automation / Colab)
 
 1. Log in to [hstream.moe](https://hstream.moe) in your normal browser.
 2. Use a browser extension such as:
@@ -32,7 +33,7 @@ Many titles on hstream.moe are **blocked for anonymous visitors**. You need a va
 python hstream_extractor.py --cookies cookies.txt "https://hstream.moe/hentai/..."
 ```
 
-#### 2. Let yt-dlp read cookies directly from your browser
+#### 2. Let yt-dlp read cookies directly from your browser (local only)
 
 ```bash
 python hstream_extractor.py --cookies-from-browser chrome "https://hstream.moe/hentai/..."
@@ -46,7 +47,26 @@ Supported browsers: `chrome`, `firefox`, `edge`, `brave`, `opera`, `chromium`, `
 > Never commit real cookies to a public repository. Cookies expire and give access to your account.  
 > Keep `cookies.txt` in `.gitignore` (already configured).
 
-## Requirements
+---
+
+## Run on Google Colab
+
+A ready-to-use notebook is included: **[HStream_Extractor_Colab.ipynb](HStream_Extractor_Colab.ipynb)**
+
+### Quick steps
+
+1. Open the notebook in Colab (or upload it).
+2. Run the **Install dependencies** cell.
+3. Paste your URLs in the Settings cell.
+4. (Optional but recommended) Upload a `cookies.txt` file via the left sidebar and set `COOKIES_FILE = "cookies.txt"`.
+5. Run the extractor cell.
+6. Download the results (or zip them) from the Files sidebar.
+
+> Colab tip: Free accounts have limited runtime and disk. Prefer shorter batches and download files promptly.
+
+---
+
+## Requirements (local)
 
 - Python 3.9+
 - `yt-dlp`, `requests`, `tqdm` (installed automatically on first run)
@@ -68,7 +88,7 @@ brew install aria2 ffmpeg
 **Windows**  
 Install via [Scoop](https://scoop.sh/) or [Chocolatey](https://chocolatey.org/), or place the binaries in your PATH.
 
-## Installation
+## Installation (local)
 
 ```bash
 git clone https://github.com/zenin-373/Hstream-Extractor.git
@@ -78,7 +98,7 @@ python -m pip install -r requirements.txt   # optional – the script can also i
 
 Or just download `hstream_extractor.py` and run it.
 
-## Usage
+## Usage (CLI)
 
 ```bash
 # Basic (works only for public links)
