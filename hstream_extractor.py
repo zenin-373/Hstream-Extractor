@@ -4,6 +4,7 @@ HStream Extractor
 Bulk downloader + optional subtitle muxer for hstream.moe.
 
 Requires hanime-plugin for hstream.moe support.
+Subtitles: try old host first, then imoto-str.ane-h.xyz.
 """
 
 import argparse
@@ -187,6 +188,79 @@ def process_url(
         print("Tip: pass --series-slug with the subtitle host folder name (dots)")
 
 
+def parse_ts(ts: str) -> int:
+    """HH:MM:SS or MM:SS or SS -> total seconds."""
+    parts = [int(x) for x in ts.strip().split(":")]
+    if len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    if len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    return parts[0]
+
+
+def fmt_ts(total: int) -> str:
+    h, r = divmod(max(0, total), 3600)
+    m, s = divmod(r, 60)
+    if h:
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
+def make_samples(dest: Path, start: str = "00:12:01", duration_sec: int = 60) -> None:
+    """Cut timed sample clips from finished videos in dest."""
+    start_sec = parse_ts(start)
+    dur = int(duration_sec)
+    end_sec = start_sec + dur
+    start_label = fmt_ts(start_sec)
+    end_label = fmt_ts(end_sec)
+    mins = max(1, int(round(dur / 60)))
+
+    videos = sorted(
+        p
+        for p in dest.iterdir()
+        if p.suffix.lower() in {".mkv", ".mp4", ".webm", ".ts"}
+        and "-sample" not in p.stem.lower()
+    )
+    if not videos:
+        print("No videos found for samples.")
+        return
+
+    print(f"\nCreating {dur}s samples starting at {start_label} → {len(videos)} file(s)")
+    for vid in videos:
+        base = re.sub(r'[\\/:*?"<>|]', "", vid.stem)
+        base = re.sub(r"\s+", " ", base).strip()
+        out_name = f"{base}-sample [{start_label} - {end_label}] {mins} Minute{vid.suffix}"
+        out_path = dest / out_name
+        print(f"Sample: {vid.name} → {out_name}")
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start_sec),
+            "-i", str(vid),
+            "-t", str(dur),
+            "-c", "copy",
+            str(out_path),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+            print(f"  OK: {out_path}")
+        except subprocess.CalledProcessError:
+            print("  stream copy failed, re-encoding...")
+            cmd2 = [
+                "ffmpeg", "-y",
+                "-ss", str(start_sec),
+                "-i", str(vid),
+                "-t", str(dur),
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                str(out_path),
+            ]
+            try:
+                subprocess.run(cmd2, check=True, capture_output=True)
+                print(f"  OK (re-encode): {out_path}")
+            except subprocess.CalledProcessError as e:
+                print(f"  FAILED: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="HStream Extractor – bulk download & optional subtitle mux for hstream.moe",
@@ -204,6 +278,22 @@ def main():
         help="Subtitle host series folder (dots), e.g. Houkago.Nureta.Seifuku",
     )
     parser.add_argument("--year", default="2024", help="Subtitle host year folder")
+    parser.add_argument(
+        "--sample",
+        action="store_true",
+        help="Also create timed sample clips after downloads",
+    )
+    parser.add_argument(
+        "--sample-start",
+        default="00:12:01",
+        help="Sample start time HH:MM:SS or MM:SS (default: 00:12:01)",
+    )
+    parser.add_argument(
+        "--sample-duration",
+        type=int,
+        default=60,
+        help="Sample duration in seconds (default: 60)",
+    )
     parser.add_argument("--skip-deps", action="store_true", help="Skip dependency install")
     args = parser.parse_args()
 
@@ -236,6 +326,9 @@ def main():
             )
         except Exception as e:
             tqdm.write(f"Failed: {e}")
+
+    if args.sample:
+        make_samples(dest, start=args.sample_start, duration_sec=args.sample_duration)
 
     print("\nAll tasks completed!")
 
