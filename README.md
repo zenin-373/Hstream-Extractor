@@ -1,5 +1,7 @@
 # HStream Extractor
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zenin-373/Hstream-Extractor/blob/main/HStream_Extractor_Colab.ipynb)
+
 A clean, standalone bulk downloader and remuxer for [hstream.moe](https://hstream.moe) (and any other site supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp)).
 
 Originally based on a Google Colab notebook. This version is a proper command-line tool with **no hardcoded credentials or session cookies**.
@@ -51,11 +53,15 @@ Supported browsers: `chrome`, `firefox`, `edge`, `brave`, `opera`, `chromium`, `
 
 ## Run on Google Colab
 
-A ready-to-use notebook is included: **[HStream_Extractor_Colab.ipynb](HStream_Extractor_Colab.ipynb)**
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zenin-373/Hstream-Extractor/blob/main/HStream_Extractor_Colab.ipynb)
+
+Click the badge above to open the notebook directly in Google Colab.
+
+Notebook file: **[HStream_Extractor_Colab.ipynb](HStream_Extractor_Colab.ipynb)**
 
 ### Quick steps
 
-1. Open the notebook in Colab (or upload it).
+1. Click **Open in Colab** (or open the notebook manually).
 2. Run the **Install dependencies** cell.
 3. Paste your URLs in the Settings cell.
 4. (Optional but recommended) Upload a `cookies.txt` file via the left sidebar and set `COOKIES_FILE = "cookies.txt"`.
