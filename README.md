@@ -1,7 +1,5 @@
 # HStream Extractor
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zenin-373/Hstream-Extractor/blob/main/HStream_Extractor_Colab.ipynb)
-
 Bulk downloader + subtitle remuxer for [hstream.moe](https://hstream.moe).
 
 Uses **yt-dlp** + **[hanime-plugin](https://github.com/cynthia2006/hanime-plugin)** (required for hstream.moe) + optional external `.ass` mux into MKV.
