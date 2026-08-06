@@ -159,12 +159,21 @@ def process_url(
     seen = set()
     candidates = [c for c in candidates if not (c in seen or seen.add(c))]
 
+    # Try old host first, then new host
+    sub_hosts = [
+        "https://oppai-str.shoujo-h.org",
+        "https://imoto-str.ane-h.xyz",
+    ]
+
     sub_path = dest / f"{base_name}.ass"
     sub_ok = False
-    for slug in candidates:
-        sub_url = f"https://oppai-str.shoujo-h.org/{year}/{slug}/E{ep_num:02d}/eng.ass"
-        if download_subtitle(sub_url, sub_path):
-            sub_ok = True
+    for host in sub_hosts:
+        for slug in candidates:
+            sub_url = f"{host}/{year}/{slug}/E{ep_num:02d}/eng.ass"
+            if download_subtitle(sub_url, sub_path):
+                sub_ok = True
+                break
+        if sub_ok:
             break
 
     if sub_ok:
@@ -174,7 +183,7 @@ def process_url(
             video_path.unlink()
         print(f"Finished: {final_mkv}")
     else:
-        print(f"Subtitle not found – kept original: {video_path}")
+        print(f"Subtitle not found on old or new host – kept original: {video_path}")
         print("Tip: pass --series-slug with the subtitle host folder name (dots)")
 
 
@@ -192,7 +201,7 @@ def main():
     )
     parser.add_argument(
         "--series-slug",
-        help="Subtitle host series folder (dots), e.g. Sweet.Home.H.na.Oneesan.wa.Suki.desu.ka",
+        help="Subtitle host series folder (dots), e.g. Houkago.Nureta.Seifuku",
     )
     parser.add_argument("--year", default="2024", help="Subtitle host year folder")
     parser.add_argument("--skip-deps", action="store_true", help="Skip dependency install")
