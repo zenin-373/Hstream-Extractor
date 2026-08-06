@@ -1,7 +1,5 @@
 # HStream Extractor
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zenin-373/Hstream-Extractor/blob/main/HStream_Extractor_Colab.ipynb)
-
 A clean, standalone bulk downloader and remuxer for [hstream.moe](https://hstream.moe) (and any other site supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp)).
 
 Originally based on a Google Colab notebook. This version is a proper command-line tool with **no hardcoded credentials or session cookies**.
