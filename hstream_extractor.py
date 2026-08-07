@@ -4,7 +4,8 @@ HStream Extractor
 Bulk downloader + optional subtitle muxer for hstream.moe.
 
 Requires hanime-plugin for hstream.moe support.
-Subtitles: try old host first, then imoto-str.ane-h.xyz; multiple years.
+Prefers 4K/best quality with automatic fallback if a quality 404s.
+Subtitles: multiple rotating hosts + years.
 """
 
 import argparse
@@ -45,13 +46,19 @@ def download_video(
     cookies_from_browser: str | None = None,
 ) -> Path:
     output_template = str(dest / "%(title)s.%(ext)s")
-    # Prefer up to 1080p — some 2160p manifests 404 on the CDN
-    format_sel = "best[height<=1080]/best[height<=720]/best"
+    # Prefer 4K/best; fall back if a quality's manifest 404s on the CDN
+    format_tries = [
+        "best",
+        "bestvideo*+bestaudio/best",
+        "best[height<=2160]",
+        "best[height<=1080]",
+        "best[height<=720]",
+    ]
 
-    def base_cmd(downloader: str) -> list:
+    def make_cmd(fmt: str, downloader: str) -> list:
         c = [
             "yt-dlp",
-            "-f", format_sel,
+            "-f", fmt,
             "--downloader", downloader,
             "--concurrent-fragments", "8",
             "-o", output_template,
@@ -69,11 +76,21 @@ def download_video(
         return c
 
     print(f"Downloading video: {url}")
-    try:
-        subprocess.run(base_cmd("aria2c"), check=True)
-    except subprocess.CalledProcessError:
-        print("Retrying with --downloader ffmpeg ...")
-        subprocess.run(base_cmd("ffmpeg"), check=True)
+    last_err = None
+    for fmt in format_tries:
+        for downloader in ("aria2c", "ffmpeg"):
+            try:
+                print(f"  try format={fmt} downloader={downloader}")
+                subprocess.run(make_cmd(fmt, downloader), check=True)
+                last_err = None
+                break
+            except subprocess.CalledProcessError as e:
+                last_err = e
+                continue
+        if last_err is None:
+            break
+    if last_err is not None:
+        raise last_err
 
     files = [p for p in dest.glob("*") if p.suffix.lower() != ".ass"]
     if not files:
@@ -169,9 +186,10 @@ def process_url(
     sub_hosts = [
         "https://oppai-str.shoujo-h.org",
         "https://imoto-str.ane-h.xyz",
+        "https://shinobu-str.rorikon-h.xyz",
     ]
     years = []
-    for y in (year, "2024", "2023", "2025", "2022", "2021"):
+    for y in (year, "2026", "2025", "2024", "2023", "2022", "2021"):
         if y not in years:
             years.append(y)
 
@@ -196,8 +214,8 @@ def process_url(
             video_path.unlink()
         print(f"Finished: {final_mkv}")
     else:
-        print(f"Subtitle not found on old or new host – kept original: {video_path}")
-        print("Tip: pass --series-slug with the subtitle host folder name (dots)")
+        print(f"Subtitle not found on any host – kept original: {video_path}")
+        print("Tip: pass --series-slug + --year from the subtitle download link")
 
 
 def parse_ts(ts: str) -> int:
@@ -285,7 +303,7 @@ def main():
     )
     parser.add_argument(
         "--series-slug",
-        help="Subtitle host series folder (dots), e.g. Hajimete.no.Hitozuma",
+        help="Subtitle host series folder (dots), e.g. Hamehara",
     )
     parser.add_argument("--year", default="2024", help="Primary subtitle year folder")
     parser.add_argument(
