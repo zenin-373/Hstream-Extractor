@@ -4,7 +4,7 @@ HStream Extractor
 Bulk downloader + optional subtitle muxer for hstream.moe.
 
 Requires hanime-plugin for hstream.moe support.
-Subtitles: try old host first, then imoto-str.ane-h.xyz.
+Subtitles: try old host first, then imoto-str.ane-h.xyz; multiple years.
 """
 
 import argparse
@@ -45,35 +45,35 @@ def download_video(
     cookies_from_browser: str | None = None,
 ) -> Path:
     output_template = str(dest / "%(title)s.%(ext)s")
-    cmd = [
-        "yt-dlp",
-        "--downloader", "aria2c",
-        "--downloader-args", "aria2c:-x 16 -s 16 -k 1M",
-        "--concurrent-fragments", "8",
-        "-o", output_template,
-        "--no-mtime",
-    ]
-    if cookies_file:
-        cmd.extend(["--cookies", str(cookies_file)])
-    elif cookies_from_browser:
-        cmd.extend(["--cookies-from-browser", cookies_from_browser])
-    cmd.append(url)
+    # Prefer up to 1080p — some 2160p manifests 404 on the CDN
+    format_sel = "best[height<=1080]/best[height<=720]/best"
+
+    def base_cmd(downloader: str) -> list:
+        c = [
+            "yt-dlp",
+            "-f", format_sel,
+            "--downloader", downloader,
+            "--concurrent-fragments", "8",
+            "-o", output_template,
+            "--no-mtime",
+            "--retries", "5",
+            "--fragment-retries", "5",
+        ]
+        if downloader == "aria2c":
+            c += ["--downloader-args", "aria2c:-x 16 -s 16 -k 1M"]
+        if cookies_file:
+            c.extend(["--cookies", str(cookies_file)])
+        elif cookies_from_browser:
+            c.extend(["--cookies-from-browser", cookies_from_browser])
+        c.append(url)
+        return c
 
     print(f"Downloading video: {url}")
     try:
-        subprocess.run(cmd, check=True)
+        subprocess.run(base_cmd("aria2c"), check=True)
     except subprocess.CalledProcessError:
         print("Retrying with --downloader ffmpeg ...")
-        cmd2 = [
-            "yt-dlp", "--downloader", "ffmpeg",
-            "-o", output_template, "--no-mtime",
-        ]
-        if cookies_file:
-            cmd2.extend(["--cookies", str(cookies_file)])
-        elif cookies_from_browser:
-            cmd2.extend(["--cookies-from-browser", cookies_from_browser])
-        cmd2.append(url)
-        subprocess.run(cmd2, check=True)
+        subprocess.run(base_cmd("ffmpeg"), check=True)
 
     files = [p for p in dest.glob("*") if p.suffix.lower() != ".ass"]
     if not files:
@@ -152,27 +152,39 @@ def process_url(
     candidates = []
     if series_slug:
         candidates.append(series_slug)
+    dotted = slug_part.replace("-", ".")
+    titleish = ".".join(
+        w if w in {"no", "wa", "wo", "ga", "ni", "de", "to", "na", "o"} else w.capitalize()
+        for w in slug_part.split("-")
+    )
     candidates += [
-        slug_part.replace("-", "."),
+        dotted,
+        titleish,
         slug_part,
         ".".join(w.capitalize() for w in slug_part.split("-")),
     ]
     seen = set()
     candidates = [c for c in candidates if not (c in seen or seen.add(c))]
 
-    # Try old host first, then new host
     sub_hosts = [
         "https://oppai-str.shoujo-h.org",
         "https://imoto-str.ane-h.xyz",
     ]
+    years = []
+    for y in (year, "2024", "2023", "2025", "2022", "2021"):
+        if y not in years:
+            years.append(y)
 
     sub_path = dest / f"{base_name}.ass"
     sub_ok = False
     for host in sub_hosts:
-        for slug in candidates:
-            sub_url = f"{host}/{year}/{slug}/E{ep_num:02d}/eng.ass"
-            if download_subtitle(sub_url, sub_path):
-                sub_ok = True
+        for y in years:
+            for slug in candidates:
+                sub_url = f"{host}/{y}/{slug}/E{ep_num:02d}/eng.ass"
+                if download_subtitle(sub_url, sub_path):
+                    sub_ok = True
+                    break
+            if sub_ok:
                 break
         if sub_ok:
             break
@@ -189,7 +201,6 @@ def process_url(
 
 
 def parse_ts(ts: str) -> int:
-    """HH:MM:SS or MM:SS or SS -> total seconds."""
     parts = [int(x) for x in ts.strip().split(":")]
     if len(parts) == 3:
         return parts[0] * 3600 + parts[1] * 60 + parts[2]
@@ -207,7 +218,6 @@ def fmt_ts(total: int) -> str:
 
 
 def make_samples(dest: Path, start: str = "00:12:01", duration_sec: int = 60) -> None:
-    """Cut timed sample clips from finished videos in dest."""
     start_sec = parse_ts(start)
     dur = int(duration_sec)
     end_sec = start_sec + dur
@@ -275,9 +285,9 @@ def main():
     )
     parser.add_argument(
         "--series-slug",
-        help="Subtitle host series folder (dots), e.g. Houkago.Nureta.Seifuku",
+        help="Subtitle host series folder (dots), e.g. Hajimete.no.Hitozuma",
     )
-    parser.add_argument("--year", default="2024", help="Subtitle host year folder")
+    parser.add_argument("--year", default="2024", help="Primary subtitle year folder")
     parser.add_argument(
         "--sample",
         action="store_true",
