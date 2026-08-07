@@ -5,7 +5,7 @@ Bulk downloader + optional subtitle muxer for hstream.moe.
 
 Requires hanime-plugin for hstream.moe support.
 Prefers 4K/best quality with automatic fallback if a quality 404s.
-Subtitles: multiple rotating hosts + years.
+Subtitles: scrape live URL from episode page (CDN hosts rotate), then fallback hosts.
 """
 
 import argparse
@@ -46,7 +46,6 @@ def download_video(
     cookies_from_browser: str | None = None,
 ) -> Path:
     output_template = str(dest / "%(title)s.%(ext)s")
-    # Prefer 4K/best; fall back if a quality's manifest 404s on the CDN
     format_tries = [
         "best",
         "bestvideo*+bestaudio/best",
@@ -122,6 +121,50 @@ def download_subtitle(sub_url: str, sub_path: Path) -> bool:
         return False
 
 
+def resolve_subtitle_from_page(page_url: str, cookies_header: str | None = None) -> str | None:
+    """Scrape the hstream episode page for the live .ass download link.
+
+    Subtitle CDN hosts rotate (oppai-str / imoto-str / shinobu-str / ...).
+    The page always points at the current host.
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://hstream.moe/",
+    }
+    if cookies_header:
+        headers["Cookie"] = cookies_header
+    try:
+        r = requests.get(page_url, headers=headers, timeout=30)
+        if r.status_code != 200:
+            print(f"  page fetch HTTP {r.status_code}")
+            return None
+        html = r.text
+        patterns = [
+            r'href=["\'](https?://[^"\']+?/eng\.ass)["\']',
+            r'href=["\'](https?://[^"\']+?\.ass)["\']',
+            r'(https?://[a-z0-9.-]+(?:-str\.[a-z0-9.-]+)/(?:\d{4}/)?[^\s"\']+/eng\.ass)',
+        ]
+        found = []
+        for pat in patterns:
+            for m in re.finditer(pat, html, flags=re.I):
+                u = m.group(1)
+                if u not in found:
+                    found.append(u)
+        if not found:
+            print("  no .ass link on episode page")
+            return None
+        for u in found:
+            if u.lower().endswith("/eng.ass") or u.lower().endswith("eng.ass"):
+                print(f"  page subtitle: {u}")
+                return u
+        print(f"  page subtitle: {found[0]}")
+        return found[0]
+    except Exception as e:
+        print(f"  page scrape failed: {e}")
+        return None
+
+
 def remux_to_mkv(video_path: Path, sub_path: Path, output_mkv: Path) -> None:
     print("Remuxing into MKV...")
     subprocess.run(
@@ -166,46 +209,54 @@ def process_url(
     ep_num = int(ep_match.group(1))
     slug_part = re.sub(r"-\d+$", "", url.rstrip("/").split("/")[-1])
 
-    candidates = []
-    if series_slug:
-        candidates.append(series_slug)
-    dotted = slug_part.replace("-", ".")
-    titleish = ".".join(
-        w if w in {"no", "wa", "wo", "ga", "ni", "de", "to", "na", "o"} else w.capitalize()
-        for w in slug_part.split("-")
-    )
-    candidates += [
-        dotted,
-        titleish,
-        slug_part,
-        ".".join(w.capitalize() for w in slug_part.split("-")),
-    ]
-    seen = set()
-    candidates = [c for c in candidates if not (c in seen or seen.add(c))]
-
-    sub_hosts = [
-        "https://oppai-str.shoujo-h.org",
-        "https://imoto-str.ane-h.xyz",
-        "https://shinobu-str.rorikon-h.xyz",
-    ]
-    years = []
-    for y in (year, "2026", "2025", "2024", "2023", "2022", "2021"):
-        if y not in years:
-            years.append(y)
-
     sub_path = dest / f"{base_name}.ass"
     sub_ok = False
-    for host in sub_hosts:
-        for y in years:
-            for slug in candidates:
-                sub_url = f"{host}/{y}/{slug}/E{ep_num:02d}/eng.ass"
-                if download_subtitle(sub_url, sub_path):
-                    sub_ok = True
+
+    print("Resolving subtitle from episode page...")
+    live_sub = resolve_subtitle_from_page(url)
+    if live_sub and download_subtitle(live_sub, sub_path):
+        sub_ok = True
+
+    if not sub_ok:
+        candidates = []
+        if series_slug:
+            candidates.append(series_slug)
+        dotted = slug_part.replace("-", ".")
+        titleish = ".".join(
+            w if w in {"no", "wa", "wo", "ga", "ni", "de", "to", "na", "o"} else w.capitalize()
+            for w in slug_part.split("-")
+        )
+        candidates += [
+            dotted,
+            titleish,
+            slug_part,
+            ".".join(w.capitalize() for w in slug_part.split("-")),
+        ]
+        seen = set()
+        candidates = [c for c in candidates if not (c in seen or seen.add(c))]
+
+        sub_hosts = [
+            "https://oppai-str.shoujo-h.org",
+            "https://imoto-str.ane-h.xyz",
+            "https://shinobu-str.rorikon-h.xyz",
+        ]
+        years = []
+        for y in (year, "2026", "2025", "2024", "2023", "2022", "2021"):
+            if y not in years:
+                years.append(y)
+
+        print("Page subtitle failed – trying known hosts...")
+        for host in sub_hosts:
+            for y in years:
+                for slug in candidates:
+                    sub_url = f"{host}/{y}/{slug}/E{ep_num:02d}/eng.ass"
+                    if download_subtitle(sub_url, sub_path):
+                        sub_ok = True
+                        break
+                if sub_ok:
                     break
             if sub_ok:
                 break
-        if sub_ok:
-            break
 
     if sub_ok:
         remux_to_mkv(video_path, sub_path, final_mkv)
@@ -214,8 +265,8 @@ def process_url(
             video_path.unlink()
         print(f"Finished: {final_mkv}")
     else:
-        print(f"Subtitle not found on any host – kept original: {video_path}")
-        print("Tip: pass --series-slug + --year from the subtitle download link")
+        print(f"Subtitle not found – kept original: {video_path}")
+        print("Tip: open the episode page → copy English .ass link, or set --series-slug + --year")
 
 
 def parse_ts(ts: str) -> int:
