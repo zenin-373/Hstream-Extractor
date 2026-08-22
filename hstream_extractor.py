@@ -155,11 +155,22 @@ def remux_to_mkv(video, sub, out):
                     "-metadata:s:s:0", "language=eng", str(out)],
                    check=True, capture_output=True)
 
+def series_folder_name(url: str) -> str:
+    """e.g. .../modaete-yo-adam-kun-1 → modaete-yo-adam-kun"""
+    token = url.rstrip("/").split("/")[-1]
+    name = re.sub(r"-\d+$", "", token)
+    name = re.sub(r'[\\/:*?"<>|]+', "", name).strip() or "unknown"
+    return name
+
 def process_url(url, dest, series_slug=None, year="2024",
                 cookies_file=None, cookies_from_browser=None):
-    video = download_video(url, dest, cookies_file, cookies_from_browser)
+    folder = dest / series_folder_name(url)
+    folder.mkdir(parents=True, exist_ok=True)
+    print(f"Series folder: {folder}")
+
+    video = download_video(url, folder, cookies_file, cookies_from_browser)
     base = video.stem
-    final = dest / f"{base}.mkv"
+    final = folder / f"{base}.mkv"
     if video.suffix.lower() == ".mkv":
         print(f"Already MKV: {video}"); return
     m = re.search(r"-(\d+)/?$", url.rstrip("/"))
@@ -167,7 +178,7 @@ def process_url(url, dest, series_slug=None, year="2024",
         print("No episode number"); return
     ep = int(m.group(1))
     slug_part = re.sub(r"-\d+$", "", url.rstrip("/").split("/")[-1])
-    sub_path = dest / f"{base}.ass"
+    sub_path = folder / f"{base}.ass"
     ok = False
 
     print("Resolving subtitle (page + player API)...")
@@ -225,11 +236,14 @@ def make_samples(dest, start="00:12:01", duration_sec=60):
         return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
     st, dur = pts(start), int(duration_sec)
     sl, el, mins = fts(st), fts(st+dur), max(1, round(dur/60))
-    vids = sorted(p for p in dest.iterdir()
-                  if p.suffix.lower() in {".mkv",".mp4",".webm"} and "-sample" not in p.stem.lower())
+    vids = []
+    for p in dest.rglob("*"):
+        if p.is_file() and p.suffix.lower() in {".mkv", ".mp4", ".webm"} and "-sample" not in p.stem.lower():
+            vids.append(p)
+    vids = sorted(vids)
     for v in vids:
-        out = dest / f"{v.stem}-sample [{sl} - {el}] {mins} Minute{v.suffix}"
-        print(f"Sample {v.name} -> {out.name}")
+        out = v.parent / f"{v.stem}-sample [{sl} - {el}] {mins} Minute{v.suffix}"
+        print(f"Sample {v} -> {out.name}")
         try:
             subprocess.run(["ffmpeg","-y","-ss",str(st),"-i",str(v),"-t",str(dur),"-c","copy",str(out)],
                            check=True, capture_output=True)
